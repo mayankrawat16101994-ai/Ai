@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS AI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            background-color: #0c0c1e;
+            color: #fff;
+            font-family: 'Orbitron', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #animationContainer {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #videoSizer {
+            width: 100%;
+            padding-top: 100%;
+            position: relative;
+        }
+        .assistant-video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+        .assistant-video.is-active {
+            opacity: 1;
+        }
+        #userVideo {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 160px;
+            height: 120px;
+            border-radius: 12px;
+            border: 2px solid #28a745;
+            box-shadow: 0 0 15px rgba(40, 167, 69, 0.5);
+            background: #000;
+            transform: scaleX(-1);
+            display: none;
+            object-fit: cover;
+            z-index: 10;
+        }
+        .controls {
+            position: absolute;
+            bottom: -80px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 20px;
+            z-index: 20;
+        }
+        .btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            cursor: pointer;
+            font-size: 24px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            color: white;
+        }
+        #mainButton {
+            background-color: #28a745;
+            box-shadow: 0 0 20px rgba(40, 167, 69, 0.4);
+        }
+        #videoCallButton {
+            background-color: #007bff;
+            box-shadow: 0 0 20px rgba(0, 123, 255, 0.4);
+        }
+        .btn:hover {
+            transform: scale(1.1);
+        }
+        #dev-attribution {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            font-size: 10px;
+            z-index: 100;
+        }
+        #dev-attribution a {
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+        }
+        @media (max-width: 768px) {
+            #animationContainer {
+                max-width: 100%;
+                height: 100vh;
+            }
+            #videoSizer {
+                padding-top: 100vh;
+            }
+            .controls {
+                bottom: 40px;
+            }
+            #userVideo {
+                width: 120px;
+                height: 90px;
+                top: 10px;
+                right: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <video id="userVideo" autoplay playsinline></video>
+
+    <div id="animationContainer">
+        <div id="videoSizer">
+            <video id="silentVideo" class="assistant-video is-active" src="assets/silent.mp4#t=1" loop muted playsinline></video>
+            <video id="thinkVideo" class="assistant-video" src="assets/think.mp4" muted playsinline></video>
+            <video id="speakVideo" class="assistant-video" src="assets/speak.mp4" loop muted playsinline></video>
+        </div>
+
+        <div class="controls">
+            <button id="mainButton" class="btn">📞</button>
+            <button id="videoCallButton" class="btn">📹</button>
+        </div>
+    </div>
+
+    <div id="dev-attribution"></div>
+
+    <script>
+        const HF_TOKEN = "HUGGING_FACE_TOKEN";
+        const silentVid = document.getElementById('silentVideo');
+        const thinkVid = document.getElementById('thinkVideo');
+        const speakVid = document.getElementById('speakVideo');
+        const mainBtn = document.getElementById('mainButton');
+        const videoBtn = document.getElementById('videoCallButton');
+        const userVideo = document.getElementById('userVideo');
+        
+        let recognition;
+        let visionModel = null;
+        let isVideoOn = false;
+        let isFirstClick = true;
+
+        const _0x1 = 'ZGV2LWF0dHJpYnV0aW9u';
+        const _0x2 = 'RGV2ZWxvcGVkIEJ5IEphdmFHb2F0IFlvdXR1YmUgQ2hhbm5lbA==';
+        const _0x3 = 'aHR0cHM6Ly93d3cueW91dHViZS5jb20vQGphdmFnb2F0cw==';
+
+        function initAttribution() {
+            const container = document.getElementById(atob(_0x1));
+            if (container) {
+                const link = document.createElement('a');
+                link.href = atob(_0x3);
+                link.innerText = atob(_0x2);
+                link.target = "_blank";
+                container.appendChild(link);
+            }
+        }
+
+        function checkAttribution() {
+            const container = document.getElementById(atob(_0x1));
+            const link = container ? container.querySelector('a') : null;
+            if (!container || !link || link.href !== atob(_0x3) || link.innerText !== atob(_0x2)) {
+                document.body.innerHTML = '<h1 style="color: red; text-align: center; margin-top: 20%;">Tampering is not allowed</h1>';
+            }
+        }
+
+        function setAnimationState(state) {
+            [silentVid, thinkVid, speakVid].forEach(v => {
+                v.classList.remove('is-active');
+                v.pause();
+            });
+            if (state === 'silent') {
+                silentVid.classList.add('is-active');
+                silentVid.play();
+            } else if (state === 'think') {
+                thinkVid.classList.add('is-active');
+                thinkVid.currentTime = 0;
+                thinkVid.play();
+            } else if (state === 'speak') {
+                speakVid.classList.add('is-active');
+                speakVid.play();
+            }
+        }
+
+        function speak(text) {
+            return new Promise((resolve) => {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'hi-IN';
+                utterance.onstart = () => setAnimationState('speak');
+                utterance.onend = () => {
+                    setAnimationState('silent');
+                    resolve();
+                };
+                window.speechSynthesis.speak(utterance);
+            });
+        }
+
+        async function queryDeepSeekTextOnly(prompt) {
+            try {
+                const response = await fetch("https://api-inference.huggingface.co/models/deepseek-ai/DeepSeek-V3.5-Exp", {
+                    method: "POST",
+                    headers: {
+                        "Authorization": `Bearer ${HF_TOKEN}`,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        inputs: `System: You are JARVIS, a sophisticated AI. Keep responses brief and helpful in Hindi. User: ${prompt}`,
+                    })
+                });
+                const result = await response.json();
+                return result[0]?.generated_text?.split("User:")[1]?.trim() || "माफ़ कीजिये, मैं समझ नहीं पाया।";
+            } catch (e) {
+                return "सर्वर कनेक्शन में समस्या है।";
+            }
+        }
+
+        async function queryWithLocalVision(prompt) {
+            let context = "";
+            if (isVideoOn && visionModel) {
+                const predictions = await visionModel.detect(userVideo);
+                if (predictions.length > 0) {
+                    const objects = predictions.map(p => p.class).join(", ");
+                    context = ` (User is showing: ${objects})`;
+                }
+            }
+            return queryDeepSeekTextOnly(prompt + context);
+        }
+
+        async function handleCommand(cmd) {
+            setAnimationState('think');
+            const command = cmd.toLowerCase();
+            
+            if (command.includes('नमस्ते')) {
+                await speak("नमस्ते श्रीमान, मैं आपकी क्या सहायता कर सकता हूँ?");
+            } else if (command.includes('टाइम') || command.includes('समय')) {
+                const now = new Date();
+                await speak(`अभी समय है ${now.getHours()} बजकर ${now.getMinutes()} मिनट।`);
+            } else {
+                const response = await queryWithLocalVision(command);
+                await speak(response);
+            }
+            recognition.start();
+        }
+
+        async function toggleVideoCall() {
+            if (!isVideoOn) {
+                try {
+                    await speak("विज़न सिस्टम शुरू किया जा रहा है।");
+                    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                    userVideo.srcObject = stream;
+                    userVideo.style.display = 'block';
+                    isVideoOn = true;
+                    if (!visionModel) {
+                        visionModel = await cocoSsd.load();
+                    }
+                    await speak("विज़न सिस्टम अब सक्रिय है।");
+                } catch (err) {
+                    await speak("कैमरा एक्सेस नहीं मिल पाया।");
+                }
+            } else {
+                const stream = userVideo.srcObject;
+                stream.getTracks().forEach(track => track.stop());
+                userVideo.style.display = 'none';
+                isVideoOn = false;
+                await speak("विज़न सिस्टम बंद कर दिया गया है।");
+            }
+        }
+
+        window.onload = () => {
+            initAttribution();
+            setInterval(checkAttribution, 1500);
+            checkAttribution();
+            
+            setAnimationState('silent');
+
+            if ('webkitSpeechRecognition' in window) {
+                recognition = new webkitSpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'hi-IN';
+
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    handleCommand(transcript);
+                };
+
+                recognition.onerror = () => {
+                    setAnimationState('silent');
+                };
+            }
+        };
+
+        mainBtn.onclick = async () => {
+            if (isFirstClick) {
+                await speak("नमस्ते, मैं जार्विस हूँ। मैं आपकी क्या मदद कर सकता हूँ?");
+                isFirstClick = false;
+            }
+            recognition.start();
+        };
+
+        videoBtn.onclick = () => {
+            toggleVideoCall();
+        };
+
+    </script>
+</body>
+</html>
